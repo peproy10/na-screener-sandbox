@@ -1,57 +1,51 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
-import plotly.express as px
+import plotly.graph_objects as go
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Global Equity Insights", layout="wide")
 
-# --- DATA ENGINE ---
-def get_detailed_data(ticker_symbol):
-    stock = yf.Ticker(ticker_symbol)
-    info = stock.info
-    
-    # Calculations
-    eps = info.get('trailingEps', 0)
-    bvps = info.get('bookValue', 0)
-    graham_num = np.sqrt(22.5 * eps * bvps) if eps > 0 and bvps > 0 else 0
-    
-    ebit = info.get('ebitda', 0) # Simplified proxy for EBIT
-    ev = info.get('enterpriseValue', 1)
-    earnings_yield = (ebit / ev) * 100 if ev > 0 else 0
+# --- HEADER & SEARCH ---
+st.title("📊 North America Stock Quote")
+ticker_input = st.text_input("Enter Ticker (e.g., AAPL, MSFT, SHOP.TO):", "AAPL").upper()
 
-    return {
-        "Price": info.get('currentPrice'),
-        "Graham Number": graham_num,
-        "Earnings Yield (%)": earnings_yield,
-        "Market Cap ($B)": info.get('marketCap', 0) / 1e9,
-        "P/E": info.get('trailingPE'),
-        "Description": info.get('longBusinessSummary')
-    }
+stock = yf.Ticker(ticker_input)
+info = stock.info
 
-# --- UI LAYOUT ---
-st.title("🚀 NA Equity Screener Pro")
+# --- TOP STATS (REPLICATING MONEYCONTROL QUOTE SECTION) ---
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Current Price", f"${info.get('currentPrice', 'N/A')}")
+col2.metric("Day High", f"${info.get('dayHigh', 'N/A')}")
+col3.metric("52W Low", f"${info.get('fiftyTwoWeekLow', 'N/A')}")
+col4.metric("52W High", f"${info.get('fiftyTwoWeekHigh', 'N/A')}")
 
-search_ticker = st.text_input("Search Company (e.g., AAPL, VAC, MSFT)", "").upper()
+# --- TABS (REPLICATING MONEYCONTROL SUB-PAGES) ---
+tab1, tab2, tab3 = st.tabs(["Overview", "Financial Results", "Insider Tracker"])
 
-if search_ticker:
-    # --- COMPANY VIEW (Deep Dive) ---
-    data = get_detailed_data(search_ticker)
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Current Price", f"${data['Price']}")
-    col2.metric("Graham Number", f"${round(data['Graham Number'], 2)}")
-    col3.metric("Earnings Yield", f"{round(data['Earnings Yield (%)'], 2)}%")
-    
-    st.subheader("Business Summary")
-    st.write(data['Description'])
-    
-    # Simple Chart
-    hist = yf.Ticker(search_ticker).history(period="1y")
-    fig = px.line(hist, y="Close", title=f"{search_ticker} - 1 Year Trend")
+with tab1:
+    st.subheader("Interactive Price Chart")
+    hist = stock.history(period="1y")
+    fig = go.Figure(data=[go.Candlestick(x=hist.index,
+                open=hist['Open'], high=hist['High'],
+                low=hist['Low'], close=hist['Close'])])
     st.plotly_chart(fig, use_container_width=True)
+    
+    st.subheader("Key Ratios")
+    r1, r2, r3 = st.columns(3)
+    r1.write(f"**P/E Ratio:** {info.get('trailingPE', 'N/A')}")
+    r2.write(f"**Market Cap:** ${info.get('marketCap', 0)/1e9:.2f}B")
+    r3.write(f"**ROE:** {info.get('returnOnEquity', 0)*100:.2f}%")
 
-else:
-    # --- SCREENER VIEW (Table) ---
-    st.info("Enter a ticker above for a deep dive, or view the mid-cap screen below.")
-    # (Insert your previous filtering table code here)
+with tab2:
+    st.subheader("Annual Financial Statements (Last 3 Years)")
+    # Transposing to show years as columns like Moneycontrol
+    income = stock.financials.iloc[:, :3]
+    st.table(income)
+
+with tab3:
+    st.subheader("Insider Transactions")
+    insiders = stock.insider_transactions
+    if insiders is not None:
+        st.dataframe(insiders.head(10), use_container_width=True)
+    else:
+        st.write("No recent insider data available.")
