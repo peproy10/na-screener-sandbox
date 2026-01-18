@@ -1,57 +1,57 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
+import plotly.express as px
 
-# 1. Page Configuration
-st.set_page_config(page_title="NA Stock Screener", layout="wide")
-st.title("📊 North America Mid-Cap Screener")
+st.set_page_config(layout="wide")
 
-# 2. Define your "Universe" (e.g., S&P 400 MidCap or a manual list)
-# For this example, let's use a small sample list.
-ticker_list = ['VAC', 'ALA.TO', 'ADTN', 'WRB', 'ENOV', 'CRMT', 'EXEL']
+# --- DATA ENGINE ---
+def get_detailed_data(ticker_symbol):
+    stock = yf.Ticker(ticker_symbol)
+    info = stock.info
+    
+    # Calculations
+    eps = info.get('trailingEps', 0)
+    bvps = info.get('bookValue', 0)
+    graham_num = np.sqrt(22.5 * eps * bvps) if eps > 0 and bvps > 0 else 0
+    
+    ebit = info.get('ebitda', 0) # Simplified proxy for EBIT
+    ev = info.get('enterpriseValue', 1)
+    earnings_yield = (ebit / ev) * 100 if ev > 0 else 0
 
-@st.cache_data(ttl=3600) # Caches data for 1 hour to stay "live" but fast
-def get_data(tickers):
-    stocks_data = []
-    for t in tickers:
-        try:
-            stock = yf.Ticker(t)
-            info = stock.info
-            # Fetching Screener.in style ratios
-            stocks_data.append({
-                "Ticker": t,
-                "Name": info.get("shortName"),
-                "Price": info.get("currentPrice"),
-                "Market Cap ($B)": info.get("marketCap", 0) / 1e9,
-                "P/E Ratio": info.get("trailingPE"),
-                "Debt/Equity": info.get("debtToEquity"),
-                "ROE (%)": info.get("returnOnEquity", 0) * 100
-            })
-        except:
-            continue
-    return pd.DataFrame(stocks_data)
+    return {
+        "Price": info.get('currentPrice'),
+        "Graham Number": graham_num,
+        "Earnings Yield (%)": earnings_yield,
+        "Market Cap ($B)": info.get('marketCap', 0) / 1e9,
+        "P/E": info.get('trailingPE'),
+        "Description": info.get('longBusinessSummary')
+    }
 
-# 3. Sidebar Filters
-st.sidebar.header("Filters (Screener.in Style)")
-min_cap, max_cap = st.sidebar.slider("Market Cap ($B)", 0.0, 10.0, (1.0, 5.0))
-max_pe = st.sidebar.number_input("Max P/E Ratio", value=30.0)
+# --- UI LAYOUT ---
+st.title("🚀 NA Equity Screener Pro")
 
-# 4. Main Display
-df = get_data(ticker_list)
-filtered_df = df[(df['Market Cap ($B)'].between(min_cap, max_cap)) & 
-                 (df['P/E Ratio'] <= max_pe)]
+search_ticker = st.text_input("Search Company (e.g., AAPL, VAC, MSFT)", "").upper()
 
-st.subheader(f"Found {len(filtered_df)} Companies")
-st.dataframe(filtered_df, use_container_width=True)
+if search_ticker:
+    # --- COMPANY VIEW (Deep Dive) ---
+    data = get_detailed_data(search_ticker)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Current Price", f"${data['Price']}")
+    col2.metric("Graham Number", f"${round(data['Graham Number'], 2)}")
+    col3.metric("Earnings Yield", f"{round(data['Earnings Yield (%)'], 2)}%")
+    
+    st.subheader("Business Summary")
+    st.write(data['Description'])
+    
+    # Simple Chart
+    hist = yf.Ticker(search_ticker).history(period="1y")
+    fig = px.line(hist, y="Close", title=f"{search_ticker} - 1 Year Trend")
+    st.plotly_chart(fig, use_container_width=True)
 
-# 5. Insider Buying Section (Manual or API-driven)
-st.divider()
-st.subheader("🕵️ Recent Insider Buying (Last 3 Months)")
-st.info("Note: Real-time insider data often requires a paid API like Finnhub or SEC-API.io.")
-# Displaying the table we discussed earlier
-insider_data = {
-    "Ticker": ["VAC", "ALA", "WRB", "ENOV"],
-    "Insider": ["Cluster Buy", "Cluster Buy", "W.R. Berkley", "Exec Team"],
-    "Value": ["$6.2M", "$2.5M", "$535K", "42K Shares"]
-}
-st.table(insider_data)
+else:
+    # --- SCREENER VIEW (Table) ---
+    st.info("Enter a ticker above for a deep dive, or view the mid-cap screen below.")
+    # (Insert your previous filtering table code here)
